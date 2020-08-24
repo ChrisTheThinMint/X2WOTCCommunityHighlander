@@ -133,6 +133,11 @@ var name BioCountryName;
 
 // Character groups that use soldier voices
 var const config array<name> SoldierVoiceCharacterGroups;
+// Variable for Issue #384
+var X2CharacterTemplate m_CharTemplate;
+
+// New variable for issue #397
+var config(Content) int iDefaultWeaponTint;
 
 function GenerateName( int iGender, name CountryName, out string strFirst, out string strLast, optional int iRace = -1 )
 {
@@ -323,43 +328,9 @@ function X2BodyPartTemplate RandomizeSetBodyPart(X2BodyPartTemplateManager PartT
 
 function UpdateDLCPackFilters()
 {
-	local int Index;
-	local XComOnlineProfileSettings ProfileSettings;
-	local X2BodyPartTemplateManager PartTemplateManager;
-	local int PartPackIndex;
-	local array<name> PartPackNames;
-	local bool bHasSetting;
-
-	ProfileSettings = `XPROFILESETTINGS;
-
-	PartTemplateManager = class'X2BodyPartTemplateManager'.static.GetBodyPartTemplateManager();
-	PartPackNames = PartTemplateManager.GetPartPackNames();
-		
-	DLCNames.Length = 0;
-	DLCNames.AddItem('');
-	for(PartPackIndex = 0; PartPackIndex < PartPackNames.Length; ++PartPackIndex)
-	{
-		bHasSetting = false;
-		for(Index = 0; Index < ProfileSettings.Data.PartPackPresets.Length; ++Index)
-		{
-			if(ProfileSettings.Data.PartPackPresets[Index].PartPackName == PartPackNames[PartPackIndex])
-			{
-				bHasSetting = true;
-				if(`SYNC_FRAND() <= ProfileSettings.Data.PartPackPresets[Index].ChanceToSelect &&
-					ProfileSettings.Data.PartPackPresets[Index].ChanceToSelect > 0.02f ) //issue #154: sliders of part packs can only go as low as 0.01f due to a bug with UISlider. As a workaround, we just set the needed limit to 0.02f.
-				{
-					DLCNames.AddItem(ProfileSettings.Data.PartPackPresets[Index].PartPackName);
-					break;
-				}
-			}
-		}
-
-		//Handle the case where a setting has not been specified in the options menu
-		if(!bHasSetting && `SYNC_FRAND() <= DLCPartPackDefaultChance)
-		{
-			DLCNames.AddItem(PartPackNames[PartPackIndex]);			
-		}
-	}
+	// Issue #155 follow-up Start
+	DLCNames = class'CHHelpers'.static.GetAcceptablePartPacks();
+	// Issue #155 End
 }
 
 function TSoldier CreateTSoldier( optional name CharacterTemplateName, optional EGender eForceGender, optional name nmCountry = '', optional int iRace = -1, optional name ArmorName )
@@ -372,7 +343,9 @@ function TSoldier CreateTSoldier( optional name CharacterTemplateName, optional 
 	kSoldier.kAppearance = DefaultAppearance;	
 	
 	CharacterTemplate = SetCharacterTemplate(CharacterTemplateName, ArmorName);
-	
+	// Single Line for Issue #384
+	m_CharTemplate = CharacterTemplate;
+
 	if (nmCountry == '')
 		nmCountry = PickOriginCountry();
 	
@@ -692,14 +665,21 @@ function SetArmsLegsAndDeco(X2SimpleBodyPartFilter BodyPartFilter)
 		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmRightArm, "RightArm", BodyPartFilter.FilterByTorsoAndArmorMatch);
 		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmLeftArmDeco, "LeftArmDeco", BodyPartFilter.FilterByTorsoAndArmorMatch);
 		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmRightArmDeco, "RightArmDeco", BodyPartFilter.FilterByTorsoAndArmorMatch);
-		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmLeftForearm, "LeftForearm", BodyPartFilter.FilterByTorsoAndArmorMatch);
-		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmRightForearm, "RightForearm", BodyPartFilter.FilterByTorsoAndArmorMatch);
 	}
 
+	// Start Issue #384
 	// XPack Hero Deco
-	RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmThighs, "Thighs", BodyPartFilter.FilterByTorsoAndArmorMatch);
-	RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmShins, "Shins", BodyPartFilter.FilterByTorsoAndArmorMatch);
-	RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmTorsoDeco, "TorsoDeco", BodyPartFilter.FilterByTorsoAndArmorMatch);
+	if (!m_CharTemplate.bForceAppearance)
+	{
+		// Start Issue #359
+		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmLeftForearm, "LeftForearm", BodyPartFilter.FilterByTorsoAndArmorMatch);
+		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmRightForearm, "RightForearm", BodyPartFilter.FilterByTorsoAndArmorMatch);
+		// End Issue #359
+		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmThighs, "Thighs", BodyPartFilter.FilterByTorsoAndArmorMatch);
+		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmShins, "Shins", BodyPartFilter.FilterByTorsoAndArmorMatch);
+		RandomizeSetBodyPart(PartTemplateManager, kSoldier.kAppearance.nmTorsoDeco, "TorsoDeco", BodyPartFilter.FilterByTorsoAndArmorMatch);
+	}
+	// End Issue #384
 }
 
 function SetHead(X2SimpleBodyPartFilter BodyPartFilter, X2CharacterTemplate CharacterTemplate)
@@ -874,9 +854,17 @@ function SetArmorTints(X2CharacterTemplate CharacterTemplate)
 		}
 	}
 
-	//For generated soldiers, weapon tint now defaults to no tint
-	kSoldier.kAppearance.iWeaponTint = 20;
-
+	// Begin issue #397
+	/// HL-Docs: feature:ChangeDefaultWeaponColor; issue:397; tags:customization
+	/// Soldiers with randomly generated appearance get the beige weapon color by default
+	/// (color number 20). This change moves the default weapon color number to `XComContent.ini`,
+	///	where it can be changed by mods or by the player manually.
+	/// ```ini
+	/// [XComGame.XGCharacterGenerator]
+	/// iDefaultWeaponTint = 20
+	/// ```
+	kSoldier.kAppearance.iWeaponTint = iDefaultWeaponTint;
+	// End issue #397
 	kSoldier.kAppearance.iTattooTint = `SYNC_RAND(ArmorPalette.Entries.length - SkipColors);
 }
 
@@ -906,6 +894,8 @@ private function bool NeedsSoldierVoice(const name CharTemplateName)
 
 function SetVoice(name CharacterTemplateName, name CountryName)
 {
+	local X2CharacterTemplate CharTemplate;
+
 	// Determine voice
 	// If a civilian is being generated, set its voice according to its editor setting to prevent it from using soldier voices.
 	// Otherwise, only set voices for soldiers and specific character groups that use soldier voices.
@@ -925,15 +915,42 @@ function SetVoice(name CharacterTemplateName, name CountryName)
 			}
 		}
 	}
+	else
+	{
+		CharTemplate = class'X2CharacterTemplateManager'.static.GetCharacterTemplateManager().FindCharacterTemplate( CharacterTemplateName );
+		if ((CharTemplate != none) && CharTemplate.DefaultAppearance.nmVoice != '')
+		{
+			kSoldier.kAppearance.nmVoice = CharTemplate.DefaultAppearance.nmVoice;
+		}
+	}
 }
 
 function SetAttitude()
 {
 	local array<X2StrategyElementTemplate> PersonalityTemplates;
 
+	local XComOnlineProfileSettings ProfileSettings;
+	local int BronzeScore, HighScore, Choice;
+
 	// Give Random Personality
 	PersonalityTemplates = class'X2StrategyElementTemplateManager'.static.GetStrategyElementTemplateManager().GetAllTemplatesOfClass(class'X2SoldierPersonalityTemplate');
-	kSoldier.kAppearance.iAttitude = `SYNC_RAND(PersonalityTemplates.Length);
+
+	ProfileSettings = `XPROFILESETTINGS;
+	BronzeScore = class'XComGameState_LadderProgress'.static.GetLadderMedalThreshold( 4, 0 );
+	HighScore = ProfileSettings.Data.GetLadderHighScore( 4 );
+
+	if (BronzeScore > HighScore)
+	{
+		do { // repick until we choose something not from TLE
+			Choice = `SYNC_RAND(PersonalityTemplates.Length);
+		} until (PersonalityTemplates[Choice].ClassThatCreatedUs.Name != 'X2StrategyElement_TLESoldierPersonalities');
+	}
+	else // anything will do
+	{
+		Choice = `SYNC_RAND(PersonalityTemplates.Length);
+	}
+
+	kSoldier.kAppearance.iAttitude = Choice;
 }
 
 function int GetRandomRaceByCountry(name CountryName)

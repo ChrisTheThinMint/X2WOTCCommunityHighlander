@@ -1442,16 +1442,31 @@ function name MaybeAddPersonalityToSpeech(Name nCharSpeech)
 {
 	local XComGameState_Unit GameStateUnit;
 	local name nPersonality;
+	// Variables for Issue #317
+	local int Pidx, Sidx, Variant;
 
 	GameStateUnit = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(ObjectID));
 
-	if ( GameStateUnit == none || !GameStateUnit.IsVeteran() )
+	/// HL-Docs: ref:Bugfixes; issue:215
+	/// Units are now allowed to have personality speech (affected by personality) even below "Veteran" rank
+	if ( GameStateUnit == none /*|| !GameStateUnit.IsVeteran()*/ ) // Issue #215
 	{
 		return '';
 	}
 
 	nPersonality = GameStateUnit.GetPersonalityTemplate().DataName;
-
+	// Start Issue #317
+	Pidx=class'CHHelpers'.default.PersonalitySpeech.Find('Personality', nPersonality);
+	if (Pidx != INDEX_NONE)
+	{
+		Sidx=class'CHHelpers'.default.PersonalitySpeech[Pidx].CharSpeeches.Find('CharSpeech', nCharSpeech);
+		if (Sidx != INDEX_NONE)
+		{
+			Variant=Rand(class'CHHelpers'.default.PersonalitySpeech[Pidx].CharSpeeches[Sidx].PersonalityVariant.Length);
+			return class'CHHelpers'.default.PersonalitySpeech[Pidx].CharSpeeches[Sidx].PersonalityVariant[Variant];
+		}
+	}
+	/*
 	switch ( nPersonality )
 	{
 		case 'Personality_ByTheBook':
@@ -1557,6 +1572,8 @@ function name MaybeAddPersonalityToSpeech(Name nCharSpeech)
 			}
 			break;
 	}
+	*/
+	// End Issue #317
 
 	return '';
 }
@@ -3449,14 +3466,17 @@ simulated event Tick( float fDeltaT )
 			DebugShowOrientation();
 		}
 
-		if (IsInCover() && GetALocalPlayerController().CheatManager != none  && XComTacticalCheatManager(GetALocalPlayerController().CheatManager).bShowFlankingMarkers)
+		if ( GetALocalPlayerController().CheatManager != none  && XComTacticalCheatManager(GetALocalPlayerController().CheatManager).bShowFlankingMarkers)
 		{
-			DrawFlankingMarkers(GetCoverPoint(), self);
-
-			// If we're on the other team, draw flanking lines to the cursor
-			if (`BATTLE.m_kActivePlayer != GetPlayer())
+			if( IsInCover() )
 			{
-				DrawFlankingCursor(self);
+				DrawFlankingMarkers(GetCoverPoint(), self);
+
+				// If we're on the other team, draw flanking lines to the cursor
+				if (`BATTLE.m_kActivePlayer != GetPlayer())
+				{
+					DrawFlankingCursor(self);
+				}
 			}
 		}
 `endif
@@ -3583,11 +3603,15 @@ simulated static function CreateVisualizer(XComGameState FullState, XComGameStat
 	`XCOMHISTORY.SetVisualizer(SyncUnitState.ObjectID, UnitVisualizer);
 
 	UnitVisualizer.ApplyLoadoutFromGameState(SyncUnitState, FullState);
-	
-	if (UnitVisualizer.GetPawn().IsA('XComHumanPawn')) //Gives soldiers/civilians their head, hair, etc.
+
+	// Start Issue #376
+	/// HL-Docs: ref:Bugfixes; issue:376
+	/// Gremlins (and other Cosmetic Units) are now correctly tinted and patterned
+	if (UnitVisualizer.GetPawn().IsA('XComHumanPawn') || SyncUnitState.GetMyTemplate().bIsCosmetic) //Gives soldiers/civilians their head, hair, etc.
 	{	
-		XComHumanPawn(UnitVisualizer.GetPawn()).SetAppearance( SyncUnitState.kAppearance );		
+		UnitVisualizer.GetPawn().SetAppearance( SyncUnitState.kAppearance );		
 	}
+	//End Issue #376
 	else if(SyncUnitState.IsTurret()) // Attach turret base mesh and initialize the turret idle state based on team.
 	{
 		kPawn = UnitVisualizer.GetPawn();

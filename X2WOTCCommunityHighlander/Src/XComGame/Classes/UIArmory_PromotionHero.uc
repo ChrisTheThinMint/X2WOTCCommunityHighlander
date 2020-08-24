@@ -29,6 +29,8 @@ var localized string m_strSharedAPWarningSingular;
 var localized string m_strPrereqAbility;
 // Start Issue #128
 var localized string m_strMutuallyExclusiveAbility;
+
+var const string MutuallyExclusivePrefix;
 // End Issue #128
 
 var int m_iCurrentlySelectedColumn;  // bsg-nlong (1.25.17): Used to track which column has focus
@@ -137,7 +139,7 @@ simulated function PopulateData()
 
 	FactionState = Unit.GetResistanceFaction();
 	
-	rankIcon = class'UIUtilities_Image'.static.GetRankIcon(Unit.GetRank(), ClassTemplate.DataName);
+	rankIcon = Unit.GetSoldierRankIcon();// Issue #408
 	// Start Issue #106
 	classIcon = Unit.GetSoldierClassIcon();
 	// End Issue #106
@@ -191,15 +193,17 @@ simulated function PopulateData()
 	AS_SetCombatIntelData(Unit.GetCombatIntelligenceLabel());
 	AS_SetPathLabels(m_strBranchesLabel, ClassTemplate.AbilityTreeTitles[0], ClassTemplate.AbilityTreeTitles[1], ClassTemplate.AbilityTreeTitles[2], ClassTemplate.AbilityTreeTitles[3]);
 
-	maxRank = class'X2ExperienceConfig'.static.GetMaxRank();
+	maxRank = ClassTemplate.GetMaxConfiguredRank(); // Issue #1
 
-	for (iRank = 0; iRank < (maxRank - 1); ++iRank)
+	for (iRank = 0; iRank < maxRank; ++iRank) // Issue #1 -- new maxRank needs to be included
 	{
 		Column = Columns[iRank];
 		bHasColumnAbility = UpdateAbilityIcons(Column);
 		bHighlightColumn = (!bHasColumnAbility && (iRank+1) == Unit.GetRank());
 
-		Column.AS_SetData(bHighlightColumn, m_strNewRank, class'UIUtilities_Image'.static.GetRankIcon(iRank+1, ClassTemplate.DataName), Caps(class'X2ExperienceConfig'.static.GetRankName(iRank+1, ClassTemplate.DataName)));
+		// Start Issue #408
+		Column.AS_SetData(bHighlightColumn, m_strNewRank, Unit.GetSoldierRankIcon(iRank+1), Caps(Unit.GetSoldierRankName(iRank+1)));
+		// End Issue #408
 	}
 
 	HidePreview();
@@ -382,9 +386,10 @@ function PreviewAbility(int Rank, int Branch)
 				// Start Issue #128
 				foreach AbilityTemplate.PrerequisiteAbilities(PrereqAbilityName)
 				{
-					if (InStr(PrereqAbilityName, "NOT_") == 0)
+					if (InStr(PrereqAbilityName, default.MutuallyExclusivePrefix, , true) == 0)
 					{
-						PreviousAbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(name(Repl(PrereqAbilityName, "NOT_", "")));
+						PreviousAbilityTemplate = AbilityTemplateManager.FindAbilityTemplate(
+							name(Mid(PrereqAbilityName, Len(default.MutuallyExclusivePrefix))));
 						if (PreviousAbilityTemplate != none )
 						{
 							if (MutuallyExclusiveNames != "")
@@ -799,4 +804,8 @@ defaultproperties
 	DisplayTag = "UIBlueprint_Promotion_Hero";
 	CameraTag = "UIBlueprint_Promotion_Hero";
 	bShowExtendedHeaderData = true;
+
+	// Start Issue #128
+	MutuallyExclusivePrefix = "NOT_";
+	// End Issue #128
 }

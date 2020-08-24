@@ -48,7 +48,7 @@ var protected bool UseUnlockHints;
 // Parameters:
 //     _UnitState: The unit state (required)
 //     _CheckGameState: For MP, if the changes are made to a unit within a game state (optional)
-//     _SlotPriorities: A list of 2-tuples associating a slot with a priority override (optional
+//     _SlotPriorities: A list of 2-tuples associating a slot with a priority override (optional)
 //     _UseUnlockHints: For Multi-item slots, the slot may provide locked indicator slots (ex: locked utility slots in UISquadSelect), (optional)
 //     _OverrideSlotsList: Instead of considering UnitShowSlot on the Slot Templates (and using the default vanilla slots that should be shown), 
 //                         provide a slot list that overrides the default slots. Yields varying results when slots don't implement the functions UI code expects them to.
@@ -61,6 +61,22 @@ static function CHUIItemSlotEnumerator CreateEnumerator(XComGameState_Unit _Unit
 	En.Init(_UnitState, _CheckGameState, _SlotPriorities, _UseUnlockHints, _OverrideSlotsList);
 
 	return En;
+}
+
+// Same as in CreateEnumerator, but instead of accepting an array<CHSlotPriority> to override slot priorities, accept two arrays that are zipped into a struct array
+// This allows mods to optionally support the highlander without crashing if it isn't present
+static function CHUIItemSlotEnumerator CreateEnumeratorZipPriorities(XComGameState_Unit _UnitState, optional XComGameState _CheckGameState, optional array<EInventorySlot> _PriorityOverrideSlots, optional array<int> _PriorityOverridePriorities, optional bool _UseUnlockHints, optional array<EInventorySlot> _OverrideSlotsList)
+{
+	local array<CHSlotPriority> arr;
+	local int i;
+
+	arr.Add(_PriorityOverrideSlots.Length);
+	for (i = 0; i < arr.Length; i++)
+	{
+		arr[i].Slot = _PriorityOverrideSlots[i];
+		arr[i].Priority = _PriorityOverridePriorities[i];
+	}
+	return CreateEnumerator(_UnitState, _CheckGameState, arr, _UseUnlockHints, _OverrideSlotsList);
 }
 
 protected function Init(XComGameState_Unit _UnitState, optional XComGameState _CheckGameState, optional array<CHSlotPriority> _SlotPriorities, optional bool _UseUnlockHints, optional array<EInventorySlot> _OverrideSlotsList)
@@ -119,6 +135,10 @@ private function int BySmallAndPriority(CHSlotPriority A, CHSlotPriority B)
 	{
 		return -1;
 	}
+	else if (!class'CHItemSlot'.static.SlotIsSmall(A.Slot) && class'CHItemSlot'.static.SlotIsSmall(B.Slot))
+	{
+		return 1;
+	}
 	return B.Priority - A.Priority;
 }
 
@@ -136,6 +156,7 @@ function Next()
 	local int iMax;
 	local array<XComGameState_Item> Items;
 	local string strDummy;
+
 	if (IsMultiSlot && IndexInSlot + 1 < MaxShownSlots)
 	{
 		IndexInSlot++;
@@ -157,7 +178,10 @@ function Next()
 			// Only show items with a size here. Generally, items are supposed to have a size, which makes them occupy several slots
 			// But that functionality is not well supported in XComGame. The only item with size 0 is the XPAD, which we don't want
 			// And we will be consistent with that behavior here
-			MaxShownSlots = iMax == -1 ? UnitState.GetAllItemsInSlot(Slot, CheckGameState, , true /* bHasSize */).Length + 1 : iMax;
+			// Start Issue #302;
+			Items = UnitState.GetAllItemsInSlot(Slot, CheckGameState, , true /* bHasSize */);
+			MaxShownSlots = iMax == -1 ? Items.Length + 1 : iMax;
+			// End Issue #302
 		}
 	}
 	else

@@ -149,6 +149,11 @@ var private XComNarrativeMoment DialogNarrativeMoment;
 
 var transient bool bPhotoboothPawn;
 
+// Issue #641
+// This array is private as it is internal CHL logic and mods do not need to access it directly
+// If you have a use case for accessing this array, open a new issue
+var private array<Actor> AdvancedBodyPartActors;
+
 delegate AdditionalHitEffect( XComUnitPawn Pawn );
 
 event RigidBodyCollision( PrimitiveComponent HitComponent, PrimitiveComponent OtherComponent,
@@ -372,6 +377,67 @@ simulated function DamageTypeHitEffectContainer GetDamageTypeHitEffectContainer(
 	return DamageEffectContainer;
 }
 
+/// HL-Docs: feature:OverrideHitEffects; issue:825; tags:tactical
+/// Allows listeners to override the default behavior of XComUnitPawn.PlayHitEffects
+/// This is especially useful for preventing the hardcoded templar fx for 
+/// eHit_Parry, eHit_Reflect and eHit_Deflect which play for any abilities that utilizing these hit results.
+/// If OverrideHitEffect is set to true the PlayHitEffects function will return early and the default behavior is ommited.
+///
+/// ```unrealscript
+/// EventID: OverrideHitEffects
+/// EventData: XComLWTuple {
+///     Data: [
+///       out bool OverrideHitEffect,
+///       inout float Damage,
+///       inout Actor InstigatedBy,
+///       inout vector HitLocation,
+///       inout name DamageTypeName,
+///       inout vector Momentum,
+///       inout bool bIsUnitRuptured,
+///       inout EAbilityHitResult HitResult,
+///     ]
+/// }
+/// EventSource: self (XComUnitPawn)
+/// NewGameState: no
+/// ```
+simulated private function bool TriggerOnOverrideHitEffects(
+	float Damage,
+	Actor InstigatedBy,
+	vector HitLocation,
+	name DamageTypeName,
+	vector Momentum,
+	bool bIsUnitRuptured,
+	EAbilityHitResult HitResult
+)
+{
+	local XComLWTuple Tuple;
+
+	Tuple = new class'XComLWTuple';
+	Tuple.Id = 'OverrideHitEffects';
+	Tuple.Data.Add(8);
+	Tuple.Data[0].kind = XComLWTVBool;
+	Tuple.Data[0].b = false; // Override default hit effects
+	Tuple.Data[1].kind = XComLWTVFloat;
+	Tuple.Data[1].f = Damage;
+	Tuple.Data[2].kind = XComLWTVObject;
+	Tuple.Data[2].o = InstigatedBy;
+	Tuple.Data[3].kind = XComLWTVVector;
+	Tuple.Data[3].v = HitLocation;
+	Tuple.Data[4].kind = XComLWTVName;
+	Tuple.Data[4].n = DamageTypeName;
+	Tuple.Data[5].kind = XComLWTVVector;
+	Tuple.Data[5].v = Momentum;
+	Tuple.Data[6].kind = XComLWTVBool;
+	Tuple.Data[6].b = bIsUnitRuptured;
+	Tuple.Data[7].kind = XComLWTVInt;
+	Tuple.Data[7].i = HitResult;
+
+	`XEVENTMGR.TriggerEvent('OverrideHitEffects', Tuple, self);
+
+	return Tuple.Data[0].b;
+}
+
+
 simulated function PlayHitEffects(float Damage, Actor InstigatedBy, vector HitLocation, name DamageTypeName, vector Momentum, bool bIsUnitRuptured, EAbilityHitResult HitResult= eHit_Success, optional TraceHitInfo ThisHitInfo )
 {
 	local XComPawnHitEffect HitEffect;
@@ -380,6 +446,13 @@ simulated function PlayHitEffects(float Damage, Actor InstigatedBy, vector HitLo
 	local XComPerkContentShared kPerkContent;
 	local DamageTypeHitEffectContainer DamageContainer;
 	local XGUnit SourceUnit;
+
+	// Start Issue #825
+	if (TriggerOnOverrideHitEffects(Damage, InstigatedBy, HitLocation, DamageTypeName, Momentum, bIsUnitRuptured, HitResult))
+	{
+		return;
+	}
+	// End Issue #825
 
 	// The HitNormal used to have noise applied, via "* 0.5 * VRand();", but S.Jameson requested 
 	// that it be removed, since he can add noise with finer control via the editor.  mdomowicz 2015_07_06
@@ -902,7 +975,7 @@ simulated function EndRagDoll()
 	//If the ragdoll state is ending, then we are presumably about to do something / play an anim. In many cases, this is but one of several flags checked to see if a unit is dead.
 	bPlayedDeath = false;
 
-	if (!IsInState(''))
+	if( !IsInState('') )
 		GotoState('');
 
 	if( m_bHasFullAnimWeightBones )
@@ -1273,6 +1346,35 @@ simulated state NoTicking
 simulated function GoToNextState() // Added to prevent none function on timer set in RagDollBlend
 {
 }
+
+simulated function SyncCorpse()
+{
+	local XComGameStateHistory History;
+	local XComGameState_Unit UnitState;
+	local bool bIsSoldier;
+	local XComGameStateContext_TacticalGameRule SyncCorpseContext;
+
+	// if we're doing latent submission, defer the state submission until the next frame where we're clear --Ned
+	if( `XCOMGAME.GameRuleset.IsDoingLatentSubmission() )
+	{
+		SetTimer(0.1f, false, 'SyncCorpse');
+		return;
+	}
+
+	History = `XCOMHISTORY;
+	UnitState = XComGameState_Unit(History.GetGameStateForObjectID(m_kGameUnit.ObjectID));
+	bIsSoldier = UnitState.IsSoldier();
+
+	if( (bIsSoldier || UnitState.CanBeCarried()) && !bProcessingDeathOnLoad )
+	{
+		//Normally not allowed to push game states from visual sequences like this, but we make an exception for xcom soldier bodies
+		SyncCorpseContext = XComGameStateContext_TacticalGameRule(class'XComGameStateContext_TacticalGameRule'.static.CreateXComGameStateContext());
+		SyncCorpseContext.GameRuleType = eGameRule_SyncTileLocationToCorpse;
+		SyncCorpseContext.UnitRef = UnitState.GetReference();
+		`XCOMGAME.GameRuleset.SubmitGameStateContext(SyncCorpseContext);
+	}
+}
+
 simulated state RagDollBlend
 {
 	simulated event BeginState(name PreviousStateName)
@@ -1312,11 +1414,7 @@ simulated state RagDollBlend
 	{
 		local XComWorldData WorldData;
 		local TTile kTile;
-		local CustomAnimParams AnimParams;
-		local XComGameStateHistory History;
-		local bool bIsSoldier;
-		local XComGameStateContext_TacticalGameRule SyncCorpseContext;
-		local XComGameState_Unit UnitState;				
+		local CustomAnimParams AnimParams;					
 		
 		// Start Issue #41
 		// Guard clause, early return and finish ragdoll if ragdoll collision
@@ -1339,17 +1437,7 @@ simulated state RagDollBlend
 				
 		Mesh.PutRigidBodyToSleep();
 
-		History = `XCOMHISTORY;
-		UnitState = XComGameState_Unit(History.GetGameStateForObjectID(m_kGameUnit.ObjectID));
-		bIsSoldier = UnitState.IsSoldier();
-		if ((bIsSoldier || UnitState.CanBeCarried()) && !bProcessingDeathOnLoad)
-		{
-			//Normally not allowed to push game states from visual sequences like this, but we make an exception for xcom soldier bodies
-			SyncCorpseContext = XComGameStateContext_TacticalGameRule(class'XComGameStateContext_TacticalGameRule'.static.CreateXComGameStateContext());
-			SyncCorpseContext.GameRuleType = eGameRule_SyncTileLocationToCorpse;
-			SyncCorpseContext.UnitRef = UnitState.GetReference();
-			`XCOMGAME.GameRuleset.SubmitGameStateContext(SyncCorpseContext);
-		}
+		SyncCorpse();
 
 		//Must take place before we possible turn off the physics below
 		Mesh.bSyncActorLocationToRootRigidBody = true;
@@ -1619,8 +1707,34 @@ function CreateBodyPartAttachment(XComBodyPartContent BodyPartContent)
 	local SkeletalMeshComponent SkelMeshComp;
 	local XComPawnPhysicsProp PhysicsProp;
 
+	// Variables for issue #641
+	local XComBodyPartContentAdvanced AdvancedContent;
+	local Actor Archetype, Instance;
+	local Vector SocketLocation;
+	local Rotator SocketRotation;
+
 	if (BodyPartContent == none)
 		return;
+
+	// Start issue #641
+	AdvancedContent = XComBodyPartContentAdvanced(BodyPartContent);
+	if (AdvancedContent != none)
+	{
+		foreach AdvancedContent.Archetypes(Archetype)
+		{
+		    Mesh.GetSocketWorldLocationAndRotation(BodyPartContent.SocketName, SocketLocation, SocketRotation);
+			Instance = Spawn(Archetype.Class,,, SocketLocation, SocketRotation, Archetype);
+
+			if (Instance != None)
+			{
+				Instance.SetBase(self,, Mesh, BodyPartContent.SocketName);
+				AdvancedBodyPartActors.AddItem(Instance);
+			}
+		}
+
+		return;
+	}
+	// End issue #641
 
 	if( BodyPartContent.SocketName != '' && Mesh.GetSocketByName(BodyPartContent.SocketName) != none )
 	{
@@ -1673,6 +1787,30 @@ function RemoveBodyPartAttachment(XComBodyPartContent BodyPartContent)
 {
 	local int AttachmentIndex;
 	local SkeletalMeshComponent AttachedMesh;
+
+	// Variables for issue #641
+	local XComBodyPartContentAdvanced AdvancedContent;
+	local Actor AttachedActor, Archetype;
+	
+	// Start issue #641
+	AdvancedContent = XComBodyPartContentAdvanced(BodyPartContent);
+	if (AdvancedContent != none)
+	{
+		foreach AdvancedBodyPartActors(AttachedActor)
+		{
+			foreach AdvancedContent.Archetypes(Archetype)
+			{
+				if (AttachedActor.ObjectArchetype == Archetype)
+				{
+					AdvancedBodyPartActors.RemoveItem(AttachedActor);
+					AttachedActor.Destroy();
+				}
+			}
+		}
+
+		return;
+	}
+	// End issue #641
 
 	if( BodyPartContent.SkeletalMesh != None )
 	{
@@ -1759,7 +1897,29 @@ simulated function ResetIKTranslations()
 simulated event Destroyed ()
 {
 	super.Destroyed();
+
+	DestroyAdvancedBodyPartActors(); // Issue #641
 }
+
+// Start issue #641
+simulated private function DestroyAdvancedBodyPartActors ()
+{
+	local Actor Actor;
+
+	// We do not need to worry about iterator invalidation here as no callbacks/events in Actor.Destroy() chain
+	// affect the AdvancedBodyPartActors array. However, if one is to be added, then this code needs to be checked
+	// for potential iterator invalidation issues
+	foreach AdvancedBodyPartActors(Actor)
+	{
+		if (Actor != none)
+		{
+			Actor.Destroy();
+		}
+	}
+
+	AdvancedBodyPartActors.Length = 0;
+}
+// End issue #641
 
 simulated function int GetCurrentFloor()
 {
@@ -1995,9 +2155,20 @@ simulated function SpawnCosmeticUnitPawn(UIPawnMgr PawnMgr, EInventorySlot InvSl
 		return;
 	}
 
+	// Start Issue #380: Moved earlier because we want to SetAppearance() whether we create a new pawn or not
+	UseAppearance = OwningUnit.kAppearance;
+	UseAppearance.iArmorTint = UseAppearance.iWeaponTint;
+	UseAppearance.iArmorTintSecondary = UseAppearance.iArmorTintSecondary;	
+	UseAppearance.nmPatterns = UseAppearance.nmWeaponPattern;
+	// End Issue #380
 	CosmeticPawn = PawnMgr.GetCosmeticArchetypePawn(InvSlot, OwningUnit.ObjectID, bUsePhotoboothPawns);
 	if (CosmeticPawn != none && CosmeticPawn == ArchetypePawn)
+	// Start Issue #380
+	{
+		CosmeticPawn.SetAppearance(UseAppearance, true);
 		return;
+	}
+	//End Issue #380
 
 	PawnLoc = Location;
 	OwnersUnitState = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(ObjectID));
@@ -2013,11 +2184,6 @@ simulated function SpawnCosmeticUnitPawn(UIPawnMgr PawnMgr, EInventorySlot InvSl
 	}
 	
 	CosmeticPawn = PawnMgr.AssociateCosmeticPawn(InvSlot, ArchetypePawn, OwningUnit.ObjectID, self, PawnLoc, Rotation, bUsePhotoboothPawns);
-
-	UseAppearance = OwningUnit.kAppearance;
-	UseAppearance.iArmorTint = UseAppearance.iWeaponTint;
-	UseAppearance.iArmorTintSecondary = UseAppearance.iArmorTintSecondary;	
-	UseAppearance.nmPatterns = UseAppearance.nmWeaponPattern;
 
 	CosmeticPawn.SetAppearance(UseAppearance, true);
 	CosmeticPawn.HQIdleAnim  = EquipCharacterTemplate.HQIdleAnim;

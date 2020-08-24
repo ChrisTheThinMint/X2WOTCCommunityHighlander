@@ -44,6 +44,7 @@ var localized string m_strTooltipStripWeapons;
 var localized string m_strTooltipStripWeaponsDisabled;
 var localized string m_strCannotEdit;
 var localized string m_strMakeAvailable;
+var localized string m_strNeedsLadderUnlock;
 
 var XGParamTag LocTag; // optimization
 var bool bGearStripped;
@@ -606,6 +607,11 @@ simulated function UpdateEquippedList()
 	// Clear out tooltips from removed list items
 	Movie.Pres.m_kTooltipMgr.RemoveTooltipsByPartialPath(string(EquippedList.MCPath));
 
+	// Issue #171 Start
+	// Realize Inventory so mods changing utility slots get updated faster
+	UpdatedUnit.RealizeItemSlotsCount(CheckGameState);
+	// Issue #171 End
+
 	// Issue #118 Start
 	// Here used to be a lot of code handling individual slots, this has been abstracted in CHItemSlot (and the Enumerator)
 	En = class'CHUIItemSlotEnumerator'.static.CreateEnumerator(UpdatedUnit, CheckGameState);
@@ -730,6 +736,9 @@ simulated function string GetDisabledReason(XComGameState_Item Item, EInventoryS
 	local X2SoldierClassTemplate SoldierClassTemplate, AllowedSoldierClassTemplate;
 	local XComGameState_Unit UpdatedUnit;
 
+	local XComOnlineProfileSettings ProfileSettings;
+	local int BronzeScore, HighScore;
+
 	// Variables for Issue #50
 	local int i, UnusedOutInt;
   local string DLCReason;
@@ -762,6 +771,20 @@ simulated function string GetDisabledReason(XComGameState_Item Item, EInventoryS
 				DisabledReason = class'UIUtilities_Text'.static.CapsCheckForGermanScharfesS(`XEXPAND.ExpandString(m_strNeedsSoldierClass));
 			}
 		}
+
+		// TLE Weapons are locked out unless ladder 1 is completed to a BronzeMedal
+		if ((DisabledReason == "") && (WeaponTemplate.ClassThatCreatedUs.Name == 'X2Item_TLE_Weapons'))
+		{
+			ProfileSettings = `XPROFILESETTINGS;
+			BronzeScore = class'XComGameState_LadderProgress'.static.GetLadderMedalThreshold( 1, 0 );
+			HighScore = ProfileSettings.Data.GetLadderHighScore( 1 );
+
+			if (BronzeScore > HighScore)
+			{
+				LocTag.StrValue0 = class'XComGameState_LadderProgress'.default.NarrativeLadderNames[ 1 ];
+				DisabledReason = class'UIUtilities_Text'.static.CapsCheckForGermanScharfesS(`XEXPAND.ExpandString(m_strNeedsLadderUnlock));
+			}
+		}
 	}
 
 	ArmorTemplate = X2ArmorTemplate(ItemTemplate);
@@ -784,6 +807,20 @@ simulated function string GetDisabledReason(XComGameState_Item Item, EInventoryS
 			{
 				LocTag.StrValue0 = AllowedSoldierClassTemplate.DisplayName;
 				DisabledReason = class'UIUtilities_Text'.static.CapsCheckForGermanScharfesS(`XEXPAND.ExpandString(m_strNeedsSoldierClass));
+			}
+		}
+
+		// TLE Armor is locked unless ladder 2 is completed to a Bronze Medal
+		if ((DisabledReason == "") && (ArmorTemplate.ClassThatCreatedUs.Name == 'X2Item_TLE_Armor'))
+		{
+			ProfileSettings = `XPROFILESETTINGS;
+			BronzeScore = class'XComGameState_LadderProgress'.static.GetLadderMedalThreshold( 2, 0 );
+			HighScore = ProfileSettings.Data.GetLadderHighScore( 2 );
+
+			if (BronzeScore > HighScore)
+			{
+				LocTag.StrValue0 = class'XComGameState_LadderProgress'.default.NarrativeLadderNames[ 2 ];
+				DisabledReason = class'UIUtilities_Text'.static.CapsCheckForGermanScharfesS(`XEXPAND.ExpandString(m_strNeedsLadderUnlock));
 			}
 		}
 	}
@@ -853,8 +890,10 @@ simulated function int SortLockerListByUpgrades(TUILockerItem A, TUILockerItem B
 {
 	local int UpgradesA, UpgradesB;
 
-	UpgradesA = A.Item.GetMyWeaponUpgradeTemplates().Length;
-	UpgradesB = B.Item.GetMyWeaponUpgradeTemplates().Length;
+	// Start Issue #306
+	UpgradesA = A.Item.GetMyWeaponUpgradeCount();
+	UpgradesB = B.Item.GetMyWeaponUpgradeCount();
+	// End Issue #306
 
 	if (UpgradesA > UpgradesB)
 	{

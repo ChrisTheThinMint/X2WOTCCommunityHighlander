@@ -54,7 +54,7 @@ simulated function UIArmory_LoadoutItem InitLoadoutItem(XComGameState_Item Item,
 	{
 		if (Item != None)
 		{
-			if ((ItemTemplate.bInfiniteItem || ItemTemplate.StartingItem) && !Item.HasBeenModified())
+			if (ItemTemplate.bInfiniteItem && !Item.HasBeenModified())
 			{
 				SetInfinite(true);
 			}
@@ -70,7 +70,8 @@ simulated function UIArmory_LoadoutItem InitLoadoutItem(XComGameState_Item Item,
 		SetDisabled(true, class'UIUtilities_Text'.static.GetColoredText(InitDisabledReason, eUIState_Bad));
 	}
 
-	if (ItemTemplate != none && ItemTemplate.DataName == 'Medikit' && class'XComGameState_HeadquartersXCom'.static.NeedsToEquipMedikitTutorial())
+	if (ItemTemplate != none && ItemTemplate.DataName == class'UIInventory_BuildItems'.default.TutorialBuildItem // Issue #701 from 'Medikit'
+		&& class'XComGameState_HeadquartersXCom'.static.NeedsToEquipMedikitTutorial())
 	{
 		// spawn the attention icon externally so it draws on top of the button and image 
 		Spawn(class'UIPanel', self).InitPanel('attentionIconMC', class'UIUtilities_Controls'.const.MC_AttentionIcon)
@@ -130,6 +131,8 @@ simulated function UIArmory_LoadoutItem SetImage(XComGameState_Item Item, option
 	local int i;
 	local bool bUpdate;
 	local array<string> NewImages;
+	// Issue #171 variables
+	local array<X2DownloadableContentInfo> DLCInfos;
 
 	if(Item == none)
 	{
@@ -138,6 +141,14 @@ simulated function UIArmory_LoadoutItem SetImage(XComGameState_Item Item, option
 	}
 
 	NewImages = Item.GetWeaponPanelImages();
+
+	// Start Issue #171
+	DLCInfos = `ONLINEEVENTMGR.GetDLCInfos(false);
+	for(i = 0; i < DLCInfos.Length; ++i)
+	{
+		DLCInfos[i].OverrideItemImage(NewImages, EquipmentSlot, ItemTemplate, UIArmory(Screen).GetUnit());
+	}
+	// End Issue #171
 
 	bUpdate = false;
 	for( i = 0; i < NewImages.Length; i++ )
@@ -349,10 +360,10 @@ function OnDropItemClicked(UIButton kButton)
 {
 	local XComGameState NewGameState;
 	local XComGameState_HeadquartersXCom XComHQ;
-	local XComGameState_Item ItemState, ReplacementItemState;
+	local XComGameState_Item ItemState; //ReplacementItemState; // Issue #171, not needed
 	local XComGameState_Unit OwnerState;
-	local array<X2EquipmentTemplate> BestGearTemplates;
-	local bool bUpgradeSucceeded;
+//	local array<X2EquipmentTemplate> BestGearTemplates; // Issue #171, not needed
+//	local bool bUpgradeSucceeded;
 
 	if(UIArmory_Loadout_MP(Screen) != none)
 	{
@@ -374,18 +385,14 @@ function OnDropItemClicked(UIButton kButton)
 		if (OwnerState.RemoveItemFromInventory(ItemState, NewGameState))
 		{
 			XComHQ.PutItemInInventory(NewGameState, ItemState); // Add the dropped item back to the HQ
-			// Issue #118 Start
-			if (class'CHItemSlot'.static.SlotGetUnequipBehavior(EquipmentSlot, OwnerState, ItemState, NewGameState) == eCHSUB_AttemptReEquip)
-			{
-				// Give the owner the best infinite item in its place
-				BestGearTemplates = OwnerState.GetBestGearForSlot(EquipmentSlot);
-				bUpgradeSucceeded = OwnerState.UpgradeEquipment(NewGameState, none, BestGearTemplates, EquipmentSlot, ReplacementItemState);
-			}
+			// Issue #171 Start
+			// Item is now re-equipped in ValidateLoadout, don't update ItemRef or ItemTemplate because UIArmory_Loadout(Screen).UpdateData(true) will destroy this anyways
+			// bUpgradeSucceeded = false;
 			OwnerState.ValidateLoadout(NewGameState);
-			// Issue #118 End
+			// Issue #171 End
 
 			`XCOMGAME.GameRuleset.SubmitGameState(NewGameState);
-			
+			/* Issue #171 not needed
 			if (bUpgradeSucceeded)
 			{
 				ItemRef = ReplacementItemState.GetReference();
@@ -395,7 +402,7 @@ function OnDropItemClicked(UIButton kButton)
 			{
 				ItemRef.ObjectID = 0;
 				ItemTemplate = None;
-			}
+			}*/
 
 			UIArmory_Loadout(Screen).UpdateData(true);
 			return;

@@ -1,0 +1,62 @@
+// For this to work, set user configs `xcom.highlander.sdkroot` and `xcom.highlander.gameroot` to their correct paths.
+// gameroot must point to the XCom2-WaroftheChosen directory. Make sure there aren't any trailing backslashes, as they will escape our quotation marks
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build (final release)",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -mod \"X2WOTCCommunityHighlander\" -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -final_release",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build (release)",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -mod \"X2WOTCCommunityHighlander\" -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}'",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build (debug)",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -mod \"X2WOTCCommunityHighlander\" -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -debug",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build for workshop stable version",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -mod \"X2WOTCCommunityHighlander\" -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -final_release -stableModId",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "runGame",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\run.ps1' -gamePath '${config:xcom.highlander.gameroot}'",
+            "problemMatcher": []
+        },
+        {
+            "label": "runUnrealEditor",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\runUnrealEditor.ps1' -sdkPath '${config:xcom.highlander.sdkroot}'",
+            "problemMatcher": []
+        },
+        {
+            "label": "updateVersions",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\update_version.ps1' -ps '${workspaceRoot}\\VERSION.ps1' -srcDirectory '${workspaceRoot}'",
+            "problemMatcher": []
+        },
+        {
+            "label": "makeDocs",
+            "type": "shell",
+            "command": "python .\\.scripts\\make_docs.py .\\X2WOTCCommunityHighlander\\Src\\ .\\X2WOTCCommunityHighlander\\Config\\ --outdir .\\target\\ --docsdir .\\docs_src\\",
+            "problemMatcher": []
+        },
+    ]
+}

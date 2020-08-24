@@ -241,6 +241,16 @@ static function bool DisplayQueuedDynamicPopup(DynamicPropertySet PropertySet)
 // ------------ X2WOTCCommunityHighlander Additions ------------
 // -------------------------------------------------------------
 
+//Start issue #647
+/// <summary>
+/// This method is run when the player loads a saved game directly into Tactical while this DLC is installed
+/// </summary>
+static event OnLoadedSavedGameToTactical()
+{
+
+}
+//#end issue #647
+
 /// Start Issue #21
 /// <summary>
 /// Called from XComUnitPawn.DLCAppendSockets
@@ -310,6 +320,27 @@ static private function bool CanAddItemToInventory(out int bCanAddItem, const EI
 
 //end Issue #50
 
+// Start Issue #171
+/// Calls to override item image shown in UIArmory_Loadout
+/// For example it allows you to show multiple grenades on grenade slot for someone with heavy ordnance
+/// Just change the value of imagePath
+static function OverrideItemImage(out array<string> imagePath, const EInventorySlot Slot, const X2ItemTemplate ItemTemplate, XComGameState_Unit UnitState)
+{
+}
+
+/// Also Issue #64
+/// Allows override number of utility slots
+static function GetNumUtilitySlotsOverride(out int NumUtilitySlots, XComGameState_Item EquippedArmor, XComGameState_Unit UnitState, XComGameState CheckGameState)
+{
+}
+
+/// Allows override number of heavy weapons slots
+/// These are the only base game slots that can be safely unrestricted since they are optional and not expected by class perks, if you want other multi slots use the CHItemSlot feature
+static function GetNumHeavyWeaponSlotsOverride(out int NumHeavySlots, XComGameState_Unit UnitState, XComGameState CheckGameState)
+{
+}
+// End Issue #171
+
 //start Issue #112
 /// <summary>
 /// Called from XComGameState_HeadquartersXCom
@@ -345,6 +376,19 @@ static function PostEncounterCreation(out name EncounterName, out PodSpawnInfo E
 }
 // End Issue #136
 
+// Start Issue #278
+/// <summary>
+/// Called from XComGameState_AIReinforcementSpawner:OnReinforcementSpawnerCreated
+/// SourceObject is the calling function's BattleData, as opposed to the original hook, which passes MissionSiteState. BattleData contains MissionSiteState
+/// Added optional ReinforcementState to modify reinforcement conditions
+/// Encounter Data is modified immediately after being generated, before validation is performed on spawn visualization based on pod conditions
+/// </summary>
+static function PostReinforcementCreation(out name EncounterName, out PodSpawnInfo Encounter, int ForceLevel, int AlertLevel, optional XComGameState_BaseObject SourceObject, optional XComGameState_BaseObject ReinforcementState)
+{
+	PostEncounterCreation(EncounterName, Encounter, ForceLevel, AlertLevel, `XCOMHISTORY.GetGameStateForObjectID(XComGameState_BattleData(SourceObject).m_iMissionID));
+}
+// End Issue #278
+
 // Start Issue #157
 /// <summary>
 /// Called from XComGameState_Missionsite:SetMissionData
@@ -359,12 +403,362 @@ static function PostSitRepCreation(out GeneratedMissionData GeneratedMission, op
 // End Issue #157
 
 // Start Issue #169
+
+/// HL-Docs: feature:UpdateHumanPawnMeshMaterial; issue:169; tags:customization,pawns
+///
+/// Adds a DLC hook to update a given material applied to a human pawn mesh component
+/// that can be used to set custom parameters on materials.
+///
+/// ```unrealscript
+/// static function UpdateHumanPawnMeshMaterial(XComGameState_Unit UnitState, XComHumanPawn Pawn, MeshComponent MeshComp, name ParentMaterialName, MaterialInstanceConstant MIC);
+/// ```
+///
+/// This is called by [`UpdateHumanPawnMeshComponent`](UpdateHumanPawnMeshComponent.md) if not overridden.
+/// `UpdateHumanPawnMeshComponent` allows more control over the materials, like being able to use
+/// `MaterialInstanceTimeVarying` or outright replacing materials.
+///
+/// The following simplified example is taken from the [Warhammer 40,000: Armours of the Imperium](https://steamcommunity.com/sharedfiles/filedetails/?id=1562717298)
+/// mod. Its armor uses custom material names *and* requires that the eye color is passed to the material using
+/// `EmissiveColor` instead of `EyeColor`:
+///
+/// ```unrealscript
+/// static function UpdateHumanPawnMeshMaterial(XComGameState_Unit UnitState, XComHumanPawn Pawn, MeshComponent MeshComp, name ParentMaterialName, MaterialInstanceConstant MIC)
+/// {
+/// 	local XComLinearColorPalette Palette;
+/// 	local LinearColor ParamColor;
+///
+/// 	if (MaterialInstanceConstant(MIC.Parent).Name == 'Mat_SpaceMarine_Eyes')
+/// 	{
+/// 		Palette = `CONTENT.GetColorPalette(ePalette_EyeColor);
+/// 		ParamColor = Palette.Entries[Pawn.m_kAppearance.iEyeColor].Primary;
+/// 		MIC.SetVectorParameterValue('EmissiveColor', ParamColor);
+/// 	}
+/// }
+/// ```
+///
+/// Note that a subset of this functionality (specifically if the material parameter names match) can
+/// be implemented with config only (no code) using the [`TintMaterialConfigs`](TintMaterialConfigs.md) feature.
+
 /// <summary>
-/// Called from XComHumanPawn:UpdateMeshMaterials
-/// lets mods manipulate pawn materials.
+/// Called from XComHumanPawn:UpdateMeshMaterials; lets mods manipulate pawn materials.
+/// This hook is called for each standard attachment for each MaterialInstanceConstant.
 /// </summary>
 static function UpdateHumanPawnMeshMaterial(XComGameState_Unit UnitState, XComHumanPawn Pawn, MeshComponent MeshComp, name ParentMaterialName, MaterialInstanceConstant MIC)
 {
 
 }
-// End Issue #157
+// End Issue #169
+
+// Start Issue #216
+/// HL-Docs: feature:UpdateHumanPawnMeshComponent; issue:216; tags:customization,pawns
+///
+/// Adds a DLC hook to update a given human pawn mesh component's materials.
+///
+/// ```unrealscript
+/// static function UpdateHumanPawnMeshComponent(XComGameState_Unit UnitState, XComHumanPawn Pawn, MeshComponent MeshComp);
+/// ```
+///
+/// This can be used to apply custom materials to meshes, or set custom parameters.
+/// If not overridden, this calls [`UpdateHumanPawnMeshMaterial`](UpdateHumanPawnMeshMaterial.md) for every
+/// MaterialInstanceConstant. Call `super.UpdateHumanPawnMeshComponent(UnitState, Pawn, MeshComp);` if you
+/// rely on both hooks.
+
+/// <summary>
+/// Called from XComHumanPawn:UpdateMeshMaterials. This function acts as a wrapper for
+/// UpdateHumanPawnMeshMaterial to still support that hook.
+/// </summary>
+static function UpdateHumanPawnMeshComponent(XComGameState_Unit UnitState, XComHumanPawn Pawn, MeshComponent MeshComp)
+{
+	local int Idx;
+	local MaterialInterface Mat, ParentMat;
+	local MaterialInstanceConstant MIC, ParentMIC;
+	local name ParentName;
+
+	for (Idx = 0; Idx < MeshComp.GetNumElements(); ++Idx)
+	{
+		Mat = MeshComp.GetMaterial(Idx);
+		MIC = MaterialInstanceConstant(Mat);
+
+		if (MIC != none)
+		{
+			// Calling code has already "instancified" the MIC -- just make sure we find the correct parent
+			ParentMat = MIC.Parent;
+			while (!ParentMat.IsA('Material'))
+			{
+				ParentMIC = MaterialInstanceConstant(ParentMat);
+				if (ParentMIC != none)
+					ParentMat = ParentMIC.Parent;
+				else
+					break;
+			}
+			ParentName = ParentMat.Name;
+
+			UpdateHumanPawnMeshMaterial(UnitState, Pawn, MeshComp, ParentName, MIC);
+		}
+	}
+}
+// End Issue #216
+
+
+/// Start Issue #239
+/// <summary>
+/// Called from SeqAct_GetPawnFromSaveData.Activated
+/// It delegates the randomly chosen pawn, unitstate and gamestate from the shell screen matinee.
+/// 
+static function MatineeGetPawnFromSaveData(XComUnitPawn UnitPawn, XComGameState_Unit UnitState, XComGameState SearchState)
+{}
+/// End Issue #239
+
+/// Start Issue #240
+/// Called from XComGameState_Item:UpdateMeshMaterials:GetWeaponAttachments.
+/// This function gets called when the weapon attachemets are loaded for an item.
+static function UpdateWeaponAttachments(out array<WeaponAttachment> Attachments, XComGameState_Item ItemState)
+{}
+/// End Issue #240
+
+/// Start Issue #245
+/// Called from XGWeapon:Init.
+/// This function gets called when the weapon archetype is initialized.
+static function WeaponInitialized(XGWeapon WeaponArchetype, XComWeapon Weapon, optional XComGameState_Item ItemState=none)
+{}
+/// End Issue #245
+
+/// Start Issue #246
+/// Called from XGWeapon:UpdateWeaponMaterial.
+/// This function gets called when the weapon material is updated.
+static function UpdateWeaponMaterial(XGWeapon WeaponArchetype, MeshComponent MeshComp)
+{}
+/// End Issue #246
+
+/// Start Issue #260
+/// Called from XComGameState_Item:CanWeaponApplyUpgrade.
+/// Allows weapons to specify whether or not they will accept a given upgrade.
+/// Should be used to answer the question "is this upgrade compatible with this weapon in general?"
+/// For whether or not other upgrades conflict or other "right now" concerns, X2WeaponUpgradeTemplate:CanApplyUpgradeToWeapon already exists
+/// It is suggested you explicitly check for your weapon templates, so as not to accidentally catch someone else's templates.
+/// - e.g. Even if you have a unique weapon category now, someone else may add items to that category later.
+static function bool CanWeaponApplyUpgrade(XComGameState_Item WeaponState, X2WeaponUpgradeTemplate UpgradeTemplate)
+{
+	return true;
+}
+/// End Issue #260
+
+/// Start Issue #281
+/// <summary>
+/// Called from XGWeapon.CreateEntity
+/// Allows DLC/Mods to append sockets to weapons
+/// NOTE: To create new sockets from script you need to unconst SocketName and BoneName in SkeletalMeshSocket
+/// </summary>
+/// HL-Docs: feature:DLCAppendWeaponSockets; issue:281; tags:pawns
+/// Allows mods to add, move and rescale sockets on the skeletal mesh of any weapon, which can be used to position visual weapon attachments,
+/// using different position/scale of the same attachment's skeletal mesh for different weapons. Example use:
+/// ```unrealscript
+/// static function DLCAppendWeaponSockets(out array<SkeletalMeshSocket> NewSockets, XComWeapon Weapon, XComGameState_Item ItemState)
+/// {
+/// 	local SkeletalMeshSocket    Socket;
+///     local vector                RelativeLocation;
+/// 	local rotator				RelativeRotation;
+/// 	local vector				RelativeScale;   
+/// 	
+/// 	if (ItemState != none)
+/// 	{
+/// 		Socket = new class'SkeletalMeshSocket';
+/// 
+/// 		Socket.SocketName = 'NewSocket';
+/// 		Socket.BoneName = 'root';
+/// 
+/// 		//	Location offsets are in Unreal Units; 1 unit is roughly equal to a centimeter.
+/// 		RelativeLocation.X = 5;
+/// 		RelativeLocation.Y = 10;
+/// 		RelativeLocation.Z = 15;
+/// 		Socket.RelativeLocation = RelativeLocation;
+/// 
+/// 		//	Socket rotation is recorded as an int value [-65535; 65535], which corresponds with [-360 degrees; 360 degrees]
+/// 		//	If we want to specify the rotation in degrees, the value must be converted using DegToUnrRot, a const in the Object class.
+/// 		RelativeRotation.Pitch = 5 * DegToUnrRot;	//	Pitch of five degrees.
+/// 		RelativeRotation.Yaw = 10 * DegToUnrRot;
+/// 		RelativeRotation.Roll = 15 * DegToUnrRot;
+/// 		Socket.RelativeRotation = RelativeRotation;
+/// 
+/// 		//	Scaling a socket will scale any mesh attached to it.
+/// 		RelativeScale.X = 0.25f;
+/// 		RelativeScale.Y = 0.5f;
+/// 		RelativeScale.Z = 1.0f;
+/// 		Socket.RelativeScale = RelativeScale;
+/// 
+/// 		NewSockets.AddItem(Socket);
+/// 	}
+/// }
+/// ```
+///
+/// Sockets that have the name of an existing socket will replace the original socket. This can be used to move, rotate,
+/// and rescale existing sockets.
+static function DLCAppendWeaponSockets(out array<SkeletalMeshSocket> NewSockets, XComWeapon Weapon, XComGameState_Item ItemState)
+{
+	return;
+}
+/// End Issue #281
+
+/// Start issue #412
+/// Called before any X2DataSet is invoked, allowing to modify default properties
+/// Warning: this is called quite early in startup process and not all game systems are bootstrapped yet (but all DLCs/mods are guranteed to be loaded)
+static function OnPreCreateTemplates()
+{
+}
+/// End issue #412
+
+/// Start Issue #419
+/// <summary>
+/// Called from X2AbilityTag.ExpandHandler
+/// Expands vanilla AbilityTagExpandHandler to allow reflection
+/// </summary>
+static function bool AbilityTagExpandHandler_CH(string InString, out string OutString, Object ParseObj, Object StrategyParseOb, XComGameState GameState)
+{
+	return false;
+}
+
+/// Start Issue #409
+/// <summary>
+/// Called from XComGameState_Unit:GetEarnedSoldierAbilities
+/// Allows DLC/Mods to add to and modify a unit's EarnedSoldierAbilities
+/// Has no return value, just modify the EarnedAbilities out variable array
+static function ModifyEarnedSoldierAbilities(out array<SoldierClassAbilityType> EarnedAbilities, XComGameState_Unit UnitState)
+{}
+/// End Issue #409
+
+// Start Issue #388
+/// <summary>
+/// Called from X2TacticalGameRuleset:state'CreateTacticalGame':UpdateTransitionMap / 
+/// XComPlayerController:SetupDropshipMatinee for both PreMission/PostMission.
+/// You may fill out the `OverrideMapName` parameter to override the transition map.
+/// If `UnitState != none`, return whether this unit should have cosmetic attachments (gear) on the transition map.
+/// </summary> 
+static function bool LoadingScreenOverrideTransitionMap(optional out string OverrideMapName, optional XComGameState_Unit UnitState)
+{
+	return false;
+}
+// End Issue #388
+
+// Start Issue #395
+/// <summary>
+/// Called from XComTacticalMissionManager:GetActiveMissionIntroDefinition before it returns the Default.
+/// Notable changes from LW2: Called even if the mission/plot/plot type has an override.
+/// OverrideType is -1 for default, 0 for Mission override, 1 for Plot override, 2 for Plot Type override.
+/// OverrideTag contains the Mission name / Plot name / Plot type, respectively
+/// Return true to use.
+/// </summary>
+static function bool UseAlternateMissionIntroDefinition(MissionDefinition ActiveMission, int OverrideType, string OverrideTag, out MissionIntroDefinition MissionIntro)
+{
+	return false;
+}
+// End Issue #395
+
+/// Start Issue #455
+/// <summary>
+/// Called from XComUnitPawnNativeBase.PostInitAnimTree
+/// Allows patching the animtree template before its initialized.
+/// </summary>
+static function UnitPawnPostInitAnimTree(XComGameState_Unit UnitState, XComUnitPawnNativeBase Pawn, SkeletalMeshComponent SkelComp)
+{
+	return;
+}
+/// End Issue #455
+
+/// Start Issue #511
+/// <summary>
+/// Allowes mod to define dlc run order dependencies
+/// RunPriorityGroup can be STANDARD = 0, FIRST = 1 or LAST = 2
+/// Only change load priority if you really sure that its needed for you mod.
+/// RunBefore and RunAfter only work within the defined LoadPriority group
+///
+/// Should be specified in the mods XComGame.ini like
+/// [ModSafeName CHDLCRunOrder]
+/// +RunBefore=...
+/// +RunAfter=...
+/// RunPriorityGroup=...
+///
+/// </summary>
+final function array<string> GetRunBeforeDLCIdentifiers()
+{
+	local CHDLCRunOrder RunOrder;
+
+	RunOrder = new(none, DLCIdentifier)class'CHDLCRunOrder';
+	// Equivalent to empty array if not specified in config
+	return RunOrder.RunBefore;
+}
+
+final function array<string> GetRunAfterDLCIdentifiers()
+{
+	local CHDLCRunOrder RunOrder;
+
+	RunOrder = new(none, DLCIdentifier)class'CHDLCRunOrder';
+	// Equivalent to empty array if not specified in config
+	return RunOrder.RunAfter;
+}
+
+final function int GetRunPriorityGroup()
+{
+	local CHDLCRunOrder RunOrder;
+
+	RunOrder = new(none, DLCIdentifier)class'CHDLCRunOrder';
+	// Equivalent to RUN_STANDARD if not specified in config
+	return RunOrder.RunPriorityGroup;
+}
+/// End Issue #511
+
+/// Start Issue #524
+/// <summary>
+/// Allow mods to specify array of incompatible and required mod.
+/// Should be specified in the mods XComGame.ini like
+/// [ModSafeName CHModDependency]
+/// +IncompatibleMods=...
+/// +IgnoreIncompatibleMods=...
+/// +RequiredMods=...
+/// +IgnoreRequiredMods=...
+/// DisplayName="..."
+/// </summary>
+final function array<string> GetIncompatibleDLCIdentifiers()
+{
+	local CHModDependency ModDependency;
+
+	ModDependency = new(none, DLCIdentifier)class'CHModDependency';
+	// Equivalent to empty array if not specified in config
+	return ModDependency.IncompatibleMods;
+}
+
+final function array<string> GetIgnoreIncompatibleDLCIdentifiers()
+{
+	local CHModDependency ModDependency;
+
+	ModDependency = new(none, DLCIdentifier)class'CHModDependency';
+	// Equivalent to empty array if not specified in config
+	return ModDependency.IgnoreIncompatibleMods;
+}
+
+final function array<string> GetRequiredDLCIdentifiers()
+{
+	local CHModDependency ModDependency;
+
+	ModDependency = new(none, DLCIdentifier)class'CHModDependency';
+	// Equivalent to empty array if not specified in config
+	return ModDependency.RequiredMods;
+}
+
+final function array<string> GetIgnoreRequiredDLCIdentifiers()
+{
+	local CHModDependency ModDependency;
+
+	ModDependency = new(none, DLCIdentifier)class'CHModDependency';
+	// Equivalent to empty array if not specified in config
+	return ModDependency.IgnoreRequiredMods;
+}
+
+final function string GetDisplayName()
+{
+	local CHModDependency ModDependency;
+
+	ModDependency = new(none, DLCIdentifier)class'CHModDependency';
+	// Equivalent to empty string if not specified in localization
+	return ModDependency.DisplayName;
+}
+/// End Issue #524

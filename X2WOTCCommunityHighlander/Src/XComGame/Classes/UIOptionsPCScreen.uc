@@ -105,6 +105,7 @@ var localized string m_str_DOFSetting_Bokeh;
 var localized string m_strVideoKeepSettings_Title;
 var localized string m_strVideoKeepSettings_Body;
 var localized string m_strVideoKeepSettings_Confirm;
+var localized array<string> m_kstr_SoundtrackStrings;
 
 var int m_KeepResolutionCountdown;
 var bool m_bPendingExit;
@@ -268,6 +269,7 @@ var localized string m_strAudioLabel_MusicVolume;
 var localized string m_strAudioLabel_EnableSoldierSpeech;
 var localized string m_strAudioLabel_ForeignLanguages;
 var localized string m_strAudioLabel_AmbientVO;
+var localized string m_strAudioLabel_Soundtrack;
 
 var localized string m_strGameplayLabel_GlamCam;
 var localized string m_strGameplayLabel_ThirdPersonCamera;
@@ -279,6 +281,7 @@ var localized string m_strGameplayLabel_ShowEnemyHealth;
 var localized string m_strGameplayLabel_UnitMoveSpeed;
 var localized string m_strGameplayLabel_EnableZipMode;
 var localized string m_strGameplayLabel_TargetPreviewMode;
+var localized string m_strGameplayLabel_LadderNarrative;
 
 var localized string m_strInterfaceLabel_DefaultCameraZoom;
 var localized string m_strInterfaceLabel_ShowHealthBars;
@@ -330,6 +333,7 @@ var localized string m_strAudioLabel_MusicVolume_Desc;
 var localized string m_strAudioLabel_EnableSoldierSpeech_Desc;
 var localized string m_strAudioLabel_ForeignLanguages_Desc;
 var localized string m_strAudioLabel_AmbientVO_Desc;
+var localized string m_strAudioLabel_Soundtrack_Desc;
 
 var localized string m_strGameplayLabel_GlamCam_Desc;
 var localized string m_strGameplayLabel_ThirdPersonCamera_Desc;
@@ -341,6 +345,7 @@ var localized string m_strGameplayLabel_ShowEnemyHealth_Desc;
 var localized string m_strGameplayLabel_UnitMoveSpeed_Desc;
 var localized string m_strGameplayLabel_EnableZipMode_Desc;
 var localized string m_strGameplayLabel_TargetPreviewMode_Desc;
+var localized string m_strGameplayLabel_LadderNarrative_Desc;
 
 var localized string m_strInterfaceLabel_DefaultCameraZoom_Desc;
 var localized string m_strInterfaceLabel_ShowHealthBars_Desc;
@@ -374,6 +379,7 @@ var bool m_bResolutionChanged;
 var bool m_bGammaChanged;
 var bool m_bSavingInProgress;
 var bool m_bApplyingPreset;
+var int  m_initialSoundtrack;
 
 var EControllerIconType CurrentIconType;
 var bool bInitialMouseState; //capture if your mose it active when you arrived, so that we can reset if you change and bail. 
@@ -389,6 +395,8 @@ var UIButton	ExitButton;
 
 //bsg-hlee (05.05.17): Adding code from console for Y button reset.
 var UIButton    ResetToDefaultsButton; //bsg-jneal (2.9.17): fixing reset to defaults functionality for consoles
+
+var XComGameState NewStateFrame;
 
 enum EUI_PCOptions_Tabs
 {
@@ -420,6 +428,8 @@ enum EUI_PCOptions_Audio
 	ePCTabAudio_EnableSoldierSpeech,
 	ePCTabAudio_ForeignLanguages,
 	ePCTabAudio_EnableAmbientVO,
+	ePCTabAudio_EnableLadderNarrative,
+	ePCTabAudio_Soundtrack,
 };
 enum EUI_PCOptions_Gameplay
 {
@@ -931,9 +941,7 @@ simulated function OnInit()
 	
 	super.OnInit();		
 
-	NavHelp = PC.Pres.GetNavHelp();
-	if(NavHelp == none)
-		NavHelp = Spawn(class'UINavigationHelp',self).InitNavHelp();
+	NavHelp = Spawn(class'UINavigationHelp',self).InitNavHelp();
 	
 	for(i=0; i < NUM_LISTITEMS; ++i)
 	{
@@ -946,6 +954,9 @@ simulated function OnInit()
 	}
 	
 	m_kProfileSettings = `XPROFILESETTINGS;
+
+	
+	m_initialSoundtrack = m_kProfileSettings.Data.m_iSoundtrackChoice;
 
 	InitialMaxVisibleCrew = m_kProfileSettings.Data.MaxVisibleCrew;
 	// Save profile settings so they can be restored if the user cancels
@@ -1290,6 +1301,9 @@ simulated function RestorePreviousProfileSettings()
 
 		// Apply the previous settings
 		m_kProfileSettings.ApplyOptionsSettings();
+
+		// Send previous soundtrack setting to Wwise
+		SetSoundtrackState(m_initialSoundtrack);
 		
 		// Video options are system-level and not in the profile.
 		ResetInitVideoSettings();
@@ -1489,6 +1503,8 @@ function SetVideoTabSelected()
 //	local int i;
 	ResetMechaListItems();
 
+	RenableMechaListItems(ePCTabVideo_Max);
+
 	VideoTabMC = Movie.GetVariableObject(MCPath$".TabGroup.Tab1");
 	if(VideoTabMC != none)
 		VideoTabMC.ActionScriptVoid("select");
@@ -1521,19 +1537,10 @@ function SetVideoTabSelected()
 	m_arrMechaItems[ePCTabVideo_VSync].UpdateDataCheckbox(m_strVideoLabel_VSyncToggle, "", m_kInitGraphicsSettings.bVSync, UpdateVSync);
 	m_arrMechaItems[ePCTabVideo_VSync].BG.SetTooltipText(m_strVideoLabel_VSyncToggle_Desc, , , 10, , , , 0.0f);
 
-
-	//m_arrMechaItems[ePCTabVideo_Gamma].EnableNavigation();
-
 	// Frame Rate Smoothing toggle: --------------------------------
 	m_arrMechaItems[ePCTabVideo_FRSmoothing].UpdateDataCheckbox(m_strVideoLabel_FRSmoothingToggle, "", GetCurrentFRSmoothingToggle(), UpdateFRSmoothing);
 	m_arrMechaItems[ePCTabVideo_FRSmoothing].BG.SetTooltipText(m_strVideoLabel_FRSmoothingToggle_Desc, , , 10, , , , 0.0f);
 	
-	/*for( i = ePCTabVideo_Max; i < NUM_LISTITEMS; i++)
-	{
-		m_arrMechaItems[i].Hide();
-		m_arrMechaItems[i].DisableNavigation();
-	}*/
-	RenableMechaListItems(ePCTabVideo_Max);
 }
 
 public function SpinnerUpdated(UIListItemSpinner spinnerControl, int direction)
@@ -1652,6 +1659,8 @@ function SetGraphicsTabSelected()
 
 	ResetMechaListItems();
 
+	RenableMechaListItems(ePCGraphics_Max);
+
 	for (i = 0; i < NumGraphicsOptions; i++)
 	{
 		if (GraphicsOptions[i].bSpinner)
@@ -1663,30 +1672,30 @@ function SetGraphicsTabSelected()
 			m_arrMechaItems[GraphicsOptions[i].Order].UpdateDataCheckbox(GraphicsOptions[i].Label, "", bool(GraphicsVals[i]), CheckboxUpdated);
 		}
 
-		//m_arrMechaItems[i].EnableNavigation();
 	}
 
 	SetPresetState();
 	ApplyPresetState(true);
 
-	/*for( i = ePCGraphics_Max; i < NUM_LISTITEMS; i++)
-	{
-		m_arrMechaItems[i].Hide();
-		m_arrMechaItems[i].DisableNavigation();
-	}*/
-	RenableMechaListItems(ePCGraphics_Max);
 }
 
 function SetAudioTabSelected()
 {
 	local GFxObject AudioTabMC;
-//	local int i;
+	local int MaxItems;
+
+	MaxItems = ePCTabAudio_Max;
+
+	if (!`ONLINEEVENTMGR.HasTLEEntitlement())
+	{
+		MaxItems -= 2;
+	}
+
+	RenableMechaListItems(MaxItems);
 
 	AudioTabMC = Movie.GetVariableObject(MCPath$".TabGroup.Tab0");
 	if(AudioTabMC != none)
 		AudioTabMC.ActionScriptVoid("select");
-		
-	//ResetMechaListItems();
 
 	// Master Volume: --------------------------------------------
 	m_arrMechaItems[ePCTabAudio_MasterVolume].UpdateDataSlider(m_strAudioLabel_MasterVolume, "", m_kProfileSettings.Data.m_iMasterVolume, , UpdateMasterVolume);
@@ -1725,27 +1734,22 @@ function SetAudioTabSelected()
 	m_arrMechaItems[ePCTabAudio_EnableAmbientVO].UpdateDataCheckbox(m_strAudioLabel_AmbientVO, "", m_kProfileSettings.Data.m_bAmbientVO, UpdateAmbientVO);
 	m_arrMechaItems[ePCTabAudio_EnableAmbientVO].BG.SetTooltipText(m_strAudioLabel_AmbientVO_Desc, , , 10, , , , 0.0f);
 	
-	/*m_arrMechaItems[ePCTabAudio_MasterVolume].EnableNavigation();
-	m_arrMechaItems[ePCTabAudio_VoiceVolume].EnableNavigation();
-	m_arrMechaItems[ePCTabAudio_SoundEffectsVolume].EnableNavigation();
-	m_arrMechaItems[ePCTabAudio_MusicVolume].EnableNavigation();
-	m_arrMechaItems[ePCTabAudio_VOIPVolume].EnableNavigation();
-	m_arrMechaItems[ePCTabAudio_VOIPPushToTalk].EnableNavigation();
-	m_arrMechaItems[ePCTabAudio_EnableSoldierSpeech].EnableNavigation();
-	m_arrMechaItems[ePCTabAudio_ForeignLanguages].EnableNavigation();
-	m_arrMechaItems[ePCTabAudio_EnableAmbientVO].EnableNavigation();
-	for( i = ePCTabAudio_Max; i < NUM_LISTITEMS; i++)
+
+	if (`ONLINEEVENTMGR.HasTLEEntitlement( ))
 	{
-		m_arrMechaItems[i].Hide();
-		m_arrMechaItems[i].DisableNavigation();
-	}*/
-	RenableMechaListItems(ePCTabAudio_Max); 
+		m_arrMechaItems[ePCTabAudio_EnableLadderNarrative].UpdateDataCheckbox(m_strGameplayLabel_LadderNarrative, "", m_kProfileSettings.Data.m_bLadderNarrativesOn, UpdateLadderNarratives);
+		m_arrMechaItems[ePCTabAudio_EnableLadderNarrative].BG.SetTooltipText(m_strGameplayLabel_LadderNarrative_Desc, , , 10, , , , 0.0f);
+		
+		m_arrMechaItems[ePCTabAudio_Soundtrack].UpdateDataDropdown(m_strAudioLabel_Soundtrack, m_kstr_SoundtrackStrings, m_kProfileSettings.Data.m_iSoundtrackChoice, UpdateSoundtrack);
+		m_arrMechaItems[ePCTabAudio_Soundtrack].BG.SetTooltipText(m_strAudioLabel_Soundtrack_Desc, , , 10, , , , 0.0f);
+	}
+
 }
 
 function SetGameplayTabSelected()
 {
 	local int Index;	
-	local int MechaItemIndex;
+	local int MechaItemIndex, MaxIndex;
 	local int PartPackPresetIndex;
 	local array<name> PartPackNames; //Names of installed part packs	
 	local PartPackPreset PartPackData;
@@ -1756,8 +1760,25 @@ function SetGameplayTabSelected()
 	local array<X2DownloadableContentInfo> DLCInfos;
 	local int DLCInfoIndex;
 	local GFxObject GameplayTabMC;
-	
+
+	// Issue #155 Start
+	// Also #160, move this code up so that we can make the tooltips work
+	PartTemplateManager = class'X2BodyPartTemplateManager'.static.GetBodyPartTemplateManager();
+	PartPackNames = PartTemplateManager.GetPartPackNames();
+
+	// filter out forced 100% packs
+	for (Index = PartPackNames.Length; Index > 0; Index--)
+	{
+		if (class'CHHelpers'.default.CosmeticDLCNamesUnaffectedByRoll.Find(PartPackNames[Index]) != INDEX_NONE)
+		{
+			PartPackNames.Remove(Index, 1);
+		}
+	}
 	ResetMechaListItems();
+
+	MaxIndex = ePCTabGameplay_Max + PartPackNames.Length;
+	RenableMechaListItems(MaxIndex - 1);
+	// Issue #155, #160 End
 	
 	GameplayTabMC = Movie.GetVariableObject(MCPath$".TabGroup.Tab3");
 	if(GameplayTabMC != none)
@@ -1775,8 +1796,8 @@ function SetGameplayTabSelected()
 
 	// Adjust how fast units move around
 	m_arrMechaItems[ePCTabGameplay_EnableZipMode].UpdateDataCheckbox(m_strGameplayLabel_EnableZipMode, "", m_kProfileSettings.Data.bEnableZipMode, UpdateMovementSpeed);
-	m_arrMechaItems[ePCTabGameplay_EnableZipMode].SetTooltipText(m_strGameplayLabel_EnableZipMode_Desc, , , 10, , , , 0.0f);
-	Movie.Pres.m_kTooltipMgr.TextTooltip.SetUsePartialPath(m_arrMechaItems[ePCTabGameplay_EnableZipMode].CachedTooltipId, true);
+	m_arrMechaItems[ePCTabGameplay_EnableZipMode].BG.SetTooltipText(m_strGameplayLabel_EnableZipMode_Desc, , , 10, , , , 0.0f);
+	//Movie.Pres.m_kTooltipMgr.TextTooltip.SetUsePartialPath(m_arrMechaItems[ePCTabGameplay_EnableZipMode].CachedTooltipId, true);
 
 	m_arrMechaItems[ePCTabGameplay_TargetPreviewMode].UpdateDataCheckbox(m_strGameplayLabel_TargetPreviewMode, "", m_kProfileSettings.Data.m_bTargetPreviewAlwaysOn, UpdateTargetPreview);
 	m_arrMechaItems[ePCTabGameplay_TargetPreviewMode].BG.SetTooltipText(m_strGameplayLabel_TargetPreviewMode_Desc, , , 10, , , , 0.0f);
@@ -1784,18 +1805,14 @@ function SetGameplayTabSelected()
 	DLCInfos = `ONLINEEVENTMGR.GetDLCInfos(false);	
 
 	SliderMapping.Length = 0;
-	PartTemplateManager = class'X2BodyPartTemplateManager'.static.GetBodyPartTemplateManager();
-	PartPackNames = PartTemplateManager.GetPartPackNames();
-
-	RenableMechaListItems(ePCTabGameplay_Max + PartPackNames.Length - 1);
 
 	for(Index = 1; Index < PartPackNames.Length; ++Index) //There will always be a NULL entry at the beginning of the list
-	{		
+	{
 		PartPackPresetIndex = m_kProfileSettings.Data.PartPackPresets.Find('PartPackName', PartPackNames[Index]);
 		if(PartPackPresetIndex == INDEX_NONE)
 		{
 			PartPackPresetIndex = m_kProfileSettings.Data.PartPackPresets.Length;
-			PartPackData.ChanceToSelect = 0.15f;
+			PartPackData.ChanceToSelect = (PartPackNames[Index] != 'DLC_1' ? 0.15f : 0.0f);
 			PartPackData.PartPackName = PartPackNames[Index];
 			m_kProfileSettings.Data.PartPackPresets.AddItem(PartPackData);
 		}
@@ -1913,22 +1930,7 @@ function SetInterfaceTabSelected()
 
 	//-------------------------------------------------------
 
-/*	m_arrMechaItems[ePCTabInterface_KeyBindings].EnableNavigation();
-	m_arrMechaItems[ePCTabInterface_Subtitles].EnableNavigation();
-	m_arrMechaItems[ePCTabInterface_AbilityGrid].EnableNavigation();
-	m_arrMechaItems[ePCTabInterface_GeoscapeSpeed].EnableNavigation();
-	m_arrMechaItems[ePCTabInterface_EdgeScroll].EnableNavigation();
-	m_arrMechaItems[ePCTabInterface_InputDevice].EnableNavigation();
 
-
-	for( i = ePCTabInterface_Max; i < NUM_LISTITEMS; i++)
-	{
-		m_arrMechaItems[i].Hide();
-		m_arrMechaItems[i].DisableNavigation();
-	}*/
-
-
-	
 	m_arrMechaItems[ePCTabInterface_KeyBindings].SetDisabled(!m_kProfileSettings.Data.IsMouseActive());  // bsg-jrebar (4/24/17): Disable key binding if contoller is selected
 }
 //-------------------------------------------------------
@@ -2186,6 +2188,26 @@ public function UpdateAmbientVO(UICheckbox CheckboxControl)
 	m_bAnyValueChanged = true;
 }
 
+public function UpdateSoundtrack(UIDropdown DropdownControl)
+{
+	m_kProfileSettings.Data.m_iSoundtrackChoice = DropdownControl.SelectedItem;
+	
+	SetSoundtrackState(DropdownControl.SelectedItem);
+
+	Movie.Pres.PlayUISound(eSUISound_MenuSelect);
+	m_bAnyValueChanged = true;
+}
+
+private function SetSoundtrackState(int SoundtrackChoice)
+{
+	switch (SoundtrackChoice)
+	{
+	case 0: `SOUNDMGR.SetState('SoundtrackGame', 'XComUFO'); break;
+	case 1: `SOUNDMGR.SetState('SoundtrackGame', 'XCom1'); break;
+	case 2: `SOUNDMGR.SetState('SoundtrackGame', 'XCom2'); break;
+	}
+}
+
 
 // ========================================================
 // DATA HOOKS - GAMEPLAY - TAB 3
@@ -2229,6 +2251,11 @@ public function UpdateTargetPreview(UICheckbox CheckboxControl)
 	m_kProfileSettings.Data.m_bTargetPreviewAlwaysOn = CheckboxControl.bChecked;
 	Movie.Pres.PlayUISound(eSUISound_MenuSelect);
 	m_bAnyValueChanged = true;
+}
+
+public function UpdateLadderNarratives(UICheckbox CheckboxControl)
+{	
+	m_kProfileSettings.Data.m_bLadderNarrativesOn = CheckboxControl.bChecked;
 }
 
 public function UpdatePartChance(UISlider SliderControl)
@@ -2456,7 +2483,7 @@ public function ConfirmUserWantsToResetToDefault(Name eAction)
 simulated function ResetProfileSettings()
 {
 	local bool bInShell;
-	local string strGameClassName; 
+	local string strGameClassName;
 
 	if( m_kProfileSettings != none )
 	{		
@@ -2847,6 +2874,12 @@ simulated public function SaveAndExitFinal()
 	{
 		SaveGamma();
 	}
+
+	if (NewStateFrame != none)
+	{
+		`TACTICALRULES.SubmitGameState(NewStateFrame);
+		NewStateFrame = none;
+	}
 	
 	XComHUD(WorldInfo.GetALocalPlayerController().myHUD).SetGammaLogoDrawing(false);
 
@@ -2883,6 +2916,7 @@ simulated function ExitScreen()
 	if( m_iCurrentTab == ePCTab_Video )
 		XComHUD(WorldInfo.GetALocalPlayerController().myHUD).SetGammaLogoDrawing(false);
 	m_kProfileSettings = none; 
+	NavHelp.Destroy();
 	Movie.Stack.Pop(self);
 	Movie.Pres.PlayUISound(eSUISound_MenuClose); 
 }
@@ -3107,30 +3141,63 @@ simulated function AS_SetTabData( string title0, string title1, string title2, s
 	Movie.ActionScriptVoid(MCPath$".SetTabData");
 }
 
+//issue #160 - lists are now dynamically built and disabled according to what the lists say: we ignore the NUM_LISTITEMS const, in other words.
+/// HL-Docs: ref:Bugfixes; issue:160
+/// `UIOptionsPCScreen` now shows all part pack sliders, adding a scroll bar if needed
 function ResetMechaListItems()
 {
 	local int i;
-	for( i = 0; i < NUM_LISTITEMS; i++ )
+	local UIMechaListItem ListItem;
+	
+	List.ClearItems();
+	m_arrMechaItems.Length = 0; //destroy the whole list after clearing it
+	for(i=0; i < NUM_LISTITEMS; ++i)
 	{
-		m_arrMechaItems[i].SetDisabled(false);
-		m_arrMechaItems[i].OnLoseFocus();
-		m_arrMechaItems[i].Hide();
-		m_arrMechaItems[i].BG.RemoveTooltip();
-		m_arrMechaItems[i].DisableNavigation();
+		ListItem = Spawn(class'UIMechaListItem', List.ItemContainer );	
+		ListItem.bAnimateOnInit = false;
+		ListItem.InitListItem();
+		ListItem.SetY(i * class'UIMechaListItem'.default.Height);
+		ListItem.OnMouseEventDelegate = DetailItemMouseEvent;
+		ListItem.SetDisabled(false);
+		ListItem.OnLoseFocus();
+		ListItem.Hide();
+		ListItem.BG.RemoveTooltip();
+		ListItem.DisableNavigation();
+		m_arrMechaItems.AddItem(ListItem);
+
 	}
+	
 	List.SetSelectedIndex(-1);
 }
 
 function RenableMechaListItems(int maxItems)
 {
 	local int i;
-	for( i = 0; i < maxItems; i++)
+	local UIMechaListItem ListItem;
+
+	// Issue #160: FIRST, enable navigation on the existing items, so the navigator properly tracks the items
+	for (i = 0; i < maxItems; i++)
 	{
 		m_arrMechaItems[i].SetDisabled(false); //This will be reset in the tab info update for each mechalistitem.
 		m_arrMechaItems[i].Show();
 		m_arrMechaItems[i].EnableNavigation();
 	}
-	for( i = maxItems; i < NUM_LISTITEMS; i++ )
+
+	// Then, spawn any additional items we may need
+	if (maxItems > NUM_LISTITEMS) //our initial list made is 16 items long, if a function gives us more than this...
+	{
+		for(i = NUM_LISTITEMS; i < maxItems; i++)
+		{
+			ListItem = Spawn(class'UIMechaListItem', List.ItemContainer );	
+			ListItem.bAnimateOnInit = false;
+			ListItem.InitListItem();
+			ListItem.SetY(i * class'UIMechaListItem'.default.Height);
+			ListItem.OnMouseEventDelegate = DetailItemMouseEvent;
+			m_arrMechaItems.AddItem(ListItem);
+		}		
+	}
+	// And finally, disable any extraneous ones
+	for (i = maxItems; i < m_arrMechaItems.Length; i++) //disable any extraneous options we don't need on startup, this is for when the menu is first opened.
 	{
 		m_arrMechaItems[i].SetDisabled(false);
 		m_arrMechaItems[i].OnLoseFocus();
@@ -3138,8 +3205,14 @@ function RenableMechaListItems(int maxItems)
 		m_arrMechaItems[i].BG.RemoveTooltip();
 		m_arrMechaItems[i].DisableNavigation();
 	}
+
+	// Also set the list size to a good value: Flash overrides it with the default
+	// from the movie, so we can't do it in OnInit()
+	List.SetHeight(class'UIMechaListItem'.default.Height * NUM_LISTITEMS);
+
 	Navigator.SetSelected(List);
 }
+//end issue #160
 
 //==============================================================================
 //		CLEANUP:

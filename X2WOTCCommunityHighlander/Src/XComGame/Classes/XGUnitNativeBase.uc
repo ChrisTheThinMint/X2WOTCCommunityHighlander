@@ -540,6 +540,8 @@ event bool ShouldUseWalkAnim(XComGameState ReleventGameState)
 			return false;
 			
 		// Start Issue #33 : do not allow cosmetic units to be used by this check
+		/// HL-Docs: ref:Bugfixes; issue:33
+		/// Gremlins owned by AI units now correctly use fast walk animations even if their owner is in Red Alert
 		if (GetAlertLevel(Unit) == eAL_Green && !Unit.IsMindControlled() && !Unit.GetMyTemplate().bIsCosmetic)
 			return true;
 		
@@ -1324,7 +1326,29 @@ function string GetMyHUDIcon()
 function EUIState GetMyHUDIconColor()
 {
 	local XComGameState_Unit StateObject;
+	local EUIState TeamOneColor, TeamTwoColor;
+	local XComLWTuple OverrideTuple;
 
+	TeamOneColor = eUIState_Warning2;
+	TeamTwoColor = eUIState_Cash;
+
+	// issue #188: let mods override default hud colours for these teams
+	// Instead of a boolean, we use the Enum instead
+	//set up a Tuple for return value
+
+	OverrideTuple = new class'XComLWTuple';
+	OverrideTuple.Id = 'OverrideEnemyHudColors';
+	OverrideTuple.Data.Add(2);
+
+	// XComLWTuple does not have a Byte kind
+	OverrideTuple.Data[0].kind = XComLWTVInt;
+	OverrideTuple.Data[0].i = TeamOneColor;
+	OverrideTuple.Data[1].kind = XComLWTVInt;
+	OverrideTuple.Data[1].i = TeamTwoColor;
+
+	`XEVENTMGR.TriggerEvent('OverrideEnemyHudColors', OverrideTuple, OverrideTuple);
+	TeamOneColor = EUIState(OverrideTuple.Data[0].i);
+	TeamTwoColor = EUIState(OverrideTuple.Data[1].i);
 	StateObject = GetVisualizedGameState();
 
 	//TODO: @gameplay
@@ -1343,7 +1367,12 @@ function EUIState GetMyHUDIconColor()
 		return eUIState_Bad;
 	if( StateObject.GetTeam() == eTeam_TheLost )
 		return eUIState_TheLost;
-
+	if(StateObject.GetTeam() == eTeam_One) //issue #188 - support for added team colours
+		return EUIState(TeamOneColor);
+	if(StateObject.GetTeam() == eTeam_Two)
+		return EUIState(TeamTwoColor);
+	//end issue #188
+	
 	//Default to show something is wrong: 
 	return eUIState_Disabled;
 }
@@ -1582,6 +1611,65 @@ function AddProjectileVolley(AnimNotify_FireWeaponVolley Notify)
 	}
 }
 
+/// HL-Docs: feature:OverrideProjectileInstance; issue:829; tags:tactical,events
+/// Allows listeners to override the parameters of SpawnAndConfigureNewProjectile
+/// The feature also introduces support for subclasses of X2UnifiedProjectile as custom projectile archetypes.
+/// If bPreventProjectileSpawning is set to true the projectile instance will NOT be spawned.
+///
+/// ```unrealscript
+/// EventID: OverrideProjectileInstance
+/// EventData: XComLWTuple {
+///     Data: [
+///       out bool bPreventProjectileSpawning
+///       in actor ProjectileTemplate,
+///       in AnimNotify_FireWeaponVolley InVolleyNotify
+///       in XComWeapon InSourceWeapon
+///       inout X2Action_Fire CurrentFireAction,
+///       in XGUnitNativeBase self
+///     ]
+/// }
+/// EventSource: XComGameStateContext_Ability AbilityContext
+/// NewGameState: no
+/// ```
+private function bool TriggerOverrideProjectileInstance(Actor ProjectileTemplate,
+												AnimNotify_FireWeaponVolley InVolleyNotify,
+												XComGameStateContext_Ability AbilityContext,
+												XComWeapon InSourceWeapon)
+{
+	local XComLWTuple Tuple;
+	local bool bPreventProjectileSpawning;
+
+	bPreventProjectileSpawning = false;
+
+	Tuple = new class'XComLWTuple';
+	Tuple.Id = 'OverrideProjectileInstance';
+	Tuple.Data.Add(6);
+
+	Tuple.Data[0].Kind = XComLWTVBool;
+	Tuple.Data[0].b = bPreventProjectileSpawning;
+
+	Tuple.Data[1].Kind = XComLWTVObject;
+	Tuple.Data[1].o = ProjectileTemplate;
+
+	Tuple.Data[2].Kind = XComLWTVObject;
+	Tuple.Data[2].o = InVolleyNotify;
+
+	Tuple.Data[3].Kind = XComLWTVObject;
+	Tuple.Data[3].o = InSourceWeapon;
+
+	Tuple.Data[4].Kind = XComLWTVObject;
+	Tuple.Data[4].o = CurrentFireAction;
+
+	Tuple.Data[5].Kind = XComLWTVObject;
+	Tuple.Data[5].o = self;
+
+	`XEVENTMGR.TriggerEvent(Tuple.Id, Tuple, AbilityContext);
+
+	CurrentFireAction = X2Action_Fire(Tuple.Data[4].o);
+
+	return bPreventProjectileSpawning;
+}
+
 private function SpawnAndConfigureNewProjectile(Actor ProjectileTemplate,
 												AnimNotify_FireWeaponVolley InVolleyNotify,
 												XComGameStateContext_Ability AbilityContext,
@@ -1589,8 +1677,17 @@ private function SpawnAndConfigureNewProjectile(Actor ProjectileTemplate,
 {
 	local X2UnifiedProjectile NewProjectile;
 
-	NewProjectile = Spawn(class'X2UnifiedProjectile', self, , , , ProjectileTemplate);
+	// Start Issue #829
+	if (TriggerOverrideProjectileInstance(ProjectileTemplate, InVolleyNotify, AbilityContext, InSourceWeapon))
+	{
+		return;
+	}
+
+	NewProjectile = Spawn(class<X2UnifiedProjectile>(ProjectileTemplate.class),self, , , , ProjectileTemplate);
+	// End Issue #829
+
 	NewProjectile.ConfigureNewProjectile(CurrentFireAction, InVolleyNotify, AbilityContext, InSourceWeapon);
+
 	NewProjectile.GotoState('Executing');
 	if (CurrentFireAction != none)
 	{

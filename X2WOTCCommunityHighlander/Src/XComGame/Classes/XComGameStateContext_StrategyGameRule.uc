@@ -118,6 +118,8 @@ static function XComGameState CreateStrategyGameStart(
 	{
 		History = `XCOMHISTORY;
 
+		History.ResetHistory( ); // clear out anything else that may have been in the history (shell save, ladders, challenges, whatever)
+
 		StrategyStartContext = XComGameStateContext_StrategyGameRule(class'XComGameStateContext_StrategyGameRule'.static.CreateXComGameStateContext());
 		StrategyStartContext.GameRuleType = eStrategyGameRule_StrategyGameStart;
 		StartState = History.CreateNewGameState(false, StrategyStartContext);
@@ -325,6 +327,20 @@ static function CompleteStrategyFromTacticalTransfer()
 	local array<X2DownloadableContentInfo> DLCInfos;
 	local int i;
 	
+	// Start issue #785
+	/// HL-Docs: feature:PreCompleteStrategyFromTacticalTransfer; issue:785; tags:strategy
+	/// There are no events that trigger before the mission rewards and several
+	/// other critical functions are processed. This event gives a way for mods
+	/// to change several aspects in the transition from tactical to strategy.
+	///
+	/// ```unrealscript
+	/// EventID: PreCompleteStrategyFromTacticalTransfer
+	/// EventData: None
+	/// EventSource: None
+	/// NewGameState: None
+	/// ```
+	`XEVENTMGR.TriggerEvent('PreCompleteStrategyFromTacticalTransfer');
+
 	UpdateSkyranger();
 	CleanupProxyVips();
 	ProcessMissionResults();
@@ -1291,6 +1307,13 @@ static function CleanupProxyVips()
 			OriginalUnit.SetCurrentStat(eStat_HP, ProxyUnit.GetCurrentStat(eStat_HP));
 		}
 
+		// Start Issue #465
+		if (class'CHHelpers'.default.PreserveProxyUnitData && ProxyUnit.bRemovedFromPlay)
+		{
+			OriginalUnit.RemoveStateFromPlay();
+		}
+		// End Issue #465
+		
 		// remove the proxy from the game. We don't need it anymore
 		NewGameState.RemoveStateObject(ProxyUnit.ObjectID);
 	}
@@ -1479,7 +1502,13 @@ static function RemoveInvalidSoldiersFromSquad()
 						}
 					}
 
-					UnitState.MakeItemsAvailable(NewGameState, false, SlotsToClear);
+					// Start Issue #310
+					if (!class'CHHelpers'.default.bDontUnequipWhenWounded)
+					{
+						UnitState.MakeItemsAvailable(NewGameState, false, SlotsToClear);
+					}
+					// End Issue #310
+
 					UnitState.bIsShaken = false;
 				}
 			}
